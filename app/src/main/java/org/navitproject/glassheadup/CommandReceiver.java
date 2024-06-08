@@ -65,7 +65,7 @@ public class CommandReceiver {
     private static final int BTHEADUP_OBDOILTEMP = 0x28;
     private static final int BTHEADUP_OBDCOOLANTTEMP = 0x29;
 
-    private static final int CMDBUFFERSIZE = 16;
+    private static final int CMDBUFFERSIZE = 20;
     private static final double SPEEDLIMITEXCEEDRED = 10;
     private Double dir = 0.0;
     private Double hdir = 0.0;
@@ -92,6 +92,7 @@ public class CommandReceiver {
     private double obdvoltage = 0.0;
     private Integer navimage;
     private int imperial = 0;
+    private ConnectionManager conmgr = null;
 
     private ArrayList<commands> cmds = new ArrayList<>(CMDBUFFERSIZE);
 
@@ -99,9 +100,11 @@ public class CommandReceiver {
         public void run() {
             while (true) {
                 try {
-                    processcmd();
+                    if(conmgr.isNusfound()) {
+                        processcmd();
+                        Log.d(TAG, "processCmd");
+                    }
                     Thread.sleep(900);
-                    Log.d(TAG, "processCmd");
                 } catch (Exception e) {
                     if (e instanceof InterruptedException)
                         break;
@@ -111,7 +114,8 @@ public class CommandReceiver {
         }
     };
 
-    public CommandReceiver() {
+    public CommandReceiver(ConnectionManager connectionManager) {
+        conmgr = connectionManager;
         int i = 0;
         while (i < CMDBUFFERSIZE) {
             cmds.add(new commands());
@@ -174,7 +178,6 @@ public class CommandReceiver {
             ph[index] = new Point();
         }
         double l = r * 0.4;
-        //double s = l * 0.4;
 
         ph[0].x = 0; /* Compute details for the body of the arrow */
         ph[0].y = r - 8;
@@ -275,7 +278,7 @@ public class CommandReceiver {
         return etas;
     }
 
-    public String getDlengths() {
+    public String getDestinationLengths() {
         return dlengths;
     }
 
@@ -323,7 +326,7 @@ public class CommandReceiver {
 
         cmds.get(index).length = len;
 
-        //copy to buffer and set flag for main loop
+        // copy to buffer and set flag for main loop
         if (len >= 0) System.arraycopy(data, 0, cmds.get(index).data, 0, len);
     }
 
@@ -385,7 +388,6 @@ public class CommandReceiver {
                 // check CRC
                 int crc = crc16_compute(cmds.get(cmdidx).data, cmds.get(cmdidx).length - 4);
                 int rcrc = ((cmds.get(cmdidx).data[cmds.get(cmdidx).data[1] - 2] & 0xFF) << 8) + (cmds.get(cmdidx).data[cmds.get(cmdidx).data[1] - 1] & 0xFF);
-                //Log.d(TAG, "Computed CRC: " + crc + " - Received CRC: " + rcrc);
 
                 if (crc == rcrc) {
                     switch (cmds.get(cmdidx).data[0]) {
@@ -547,10 +549,7 @@ public class CommandReceiver {
         Bitmap.Config conf = Bitmap.Config.ARGB_8888; // see other conf types
         Bitmap bmp = Bitmap.createBitmap(w, h, conf); // this creates a MUTABLE bitmap
         Canvas canvas = new Canvas(bmp);
-
-
         canvas.drawColor(Color.BLACK);
-
 
         return bmp;
     }
@@ -601,6 +600,4 @@ public class CommandReceiver {
             used = false;
         }
     }
-
-
 }

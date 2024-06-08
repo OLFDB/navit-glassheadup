@@ -23,6 +23,15 @@
         android:textSize="26px" />
 
     <TextView
+        android:id="@+id/time_view"
+        android:layout_width="450px"
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:gravity="right"
+        android:text="23:14"
+        android:textSize="26px" />
+
+    <TextView
         android:id="@+id/eta_text_view"
         android:layout_width="220px"
         android:layout_height="wrap_content"

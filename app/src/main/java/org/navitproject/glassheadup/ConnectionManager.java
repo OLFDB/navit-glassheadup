@@ -1,17 +1,22 @@
 /*
- * Copyright (C) 2013 The Android Open Source Project
  *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
+ *  * Navit, a modular navigation system.
+ *  * Copyright (C) 2005-2008 Navit Team
+ *  *
+ *  * This program is free software; you can redistribute it and/or
+ *  * modify it under the terms of the GNU General Public License
+ *  * version 2 as published by the Free Software Foundation.
+ *  *
+ *  * This program is distributed in the hope that it will be useful,
+ *  * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  * GNU General Public License for more details.
+ *  *
+ *  * You should have received a copy of the GNU General Public License
+ *  * along with this program; if not, write to the
+ *  * Free Software Foundation, Inc., 51 Franklin Street, Fifth Floor,
+ *  * Boston, MA  02110-1301, USA.
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
  */
 
 package org.navitproject.glassheadup;
@@ -28,6 +33,7 @@ import android.bluetooth.BluetoothProfile;
 import android.content.Context;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.ParcelUuid;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -39,12 +45,19 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+
+import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
+import no.nordicsemi.android.support.v18.scanner.ScanCallback;
+import no.nordicsemi.android.support.v18.scanner.ScanFilter;
+import no.nordicsemi.android.support.v18.scanner.ScanResult;
+import no.nordicsemi.android.support.v18.scanner.ScanSettings;
 
 import static android.bluetooth.BluetoothAdapter.STATE_CONNECTED;
 import static android.bluetooth.BluetoothAdapter.STATE_DISCONNECTED;
@@ -67,7 +80,7 @@ public class ConnectionManager {
     private BluetoothGatt mBluetoothGatt = null;
     private byte[] cmdbuffer = new byte[50];
     private int cmdbufferidx = 0;
-    private CommandReceiver cmdrec = new CommandReceiver();
+    private CommandReceiver cmdrec;
     private String deviceserial;
     private String deviceserial_read = "";
     private boolean nusfound = false;
@@ -82,6 +95,7 @@ public class ConnectionManager {
 
     private Handler mHandler;
     private boolean mScanning;
+    private BluetoothLeScannerCompat scanner;
 
     /**
      * Initializes a new instance of {@code ConnectionManager}, using the specified context to
@@ -89,13 +103,14 @@ public class ConnectionManager {
      */
     public ConnectionManager(Context applicationContext, BluetoothManager bluetoothManager) {
         myContext = applicationContext;
+        cmdrec = new CommandReceiver(this);
         Log.w(TAG, "ConnectionManager() ");
         deviceserial = getDeviceSerialConfigured(myContext);
         Log.e(TAG, "CONFIGURED DEVICESERIAL IS: " + deviceserial);
         mHandler = new Handler();
         bluetoothAdapter = bluetoothManager.getAdapter();
         Set<BluetoothDevice> x = bluetoothManager.getAdapter().getBondedDevices();
-        if (x.size() > 0) {
+        if (false) {//(x.size() > 0) { Bonded devices do not list the NUS Service, so ignore bonded
             Log.e(TAG, "Trying bonded device.");
             mBluetoothGatt = x.iterator().next().connectGatt(myContext, false, mGattCallback);
             connecting = true;
@@ -107,8 +122,41 @@ public class ConnectionManager {
 
     }
 
-    private BluetoothAdapter.LeScanCallback scanCallback = new BluetoothAdapter.LeScanCallback() {
-        @Override
+    public boolean isConnected() {
+        return connected;
+    }
+
+    private ScanCallback scanCallback = new ScanCallback() {
+
+        public void onScanResult(int callbackType, ScanResult result) {
+            super.onScanResult(callbackType, result);
+
+            if(result.getRssi() < MIN_RSSI_VALUE)
+                return;
+
+            if (!connecting && !connected) {
+                if (mBluetoothGatt == null && scanner !=null) {
+                    scanner.stopScan(scanCallback);
+                    mScanning=false;
+                    connecting = true;
+                    mBluetoothGatt = result.getDevice().connectGatt(myContext, false, mGattCallback);
+                    Log.i(TAG, "Found device: " + Utilities.bytesToHex(result.getScanRecord().getBytes()));
+                    Log.i(TAG, "refreshDeviceCache: " + refreshDeviceCache(mBluetoothGatt));
+                }
+            } else {
+                Log.w(TAG, "Ignoring device: " + Utilities.bytesToHex(result.getScanRecord().getBytes()) + " as another device is currently connected or connecting.");
+            }
+        }
+
+        public void onScanFailed(int errorCode) {
+            Log.w(TAG, "Scan FAILED!");
+        }
+
+        public void onBatchScanResults(List<ScanResult> results) {
+            Log.w(TAG, "Batch Scan - Count of results: " + results.size());
+        }
+
+
         public void onLeScan(BluetoothDevice device, int rssi, byte[] scanRecord) {
 
             if (rssi < MIN_RSSI_VALUE || !mScanning)
@@ -116,9 +164,10 @@ public class ConnectionManager {
 
             if (!connected) {
                 if (mBluetoothGatt == null) {
+
                     connecting = true;
                     mBluetoothGatt = device.connectGatt(myContext, false, mGattCallback);
-                    Log.i(TAG, "Found device: " + Utilities.bytesToHex(scanRecord));
+                    Log.i(TAG, "Found device: " + Utilities.bytesToHex(scanRecord) + "\nUUIDs: " + device.getUuids()!=null?device.getUuids().toString():"null");
                     Log.i(TAG, "refreshDeviceCache: " + refreshDeviceCache(mBluetoothGatt));
                 }
             } else {
@@ -158,11 +207,13 @@ public class ConnectionManager {
 
             if (newState == STATE_DISCONNECTED || newState == 133) { // https://issuetracker.google.com/issues/36976711
                 Log.e(TAG, "STATE_DISCONNECTED: " + newState);
+                mBluetoothGatt.setCharacteristicNotification(nusrx, false);
+                nusrx=null;
                 gatt.close();
                 mBluetoothGatt = null;
-                nusfound = false;
                 connected = false;
                 connecting = false;
+                nusfound = false;
                 scanLeDevice(true);
             }
         }
@@ -210,8 +261,11 @@ public class ConnectionManager {
 
             List<BluetoothGattService> svcs = gatt.getServices();
 
+            if(svcs.size()<2)
+                Log.w(TAG, "No Services returned for Device: " + gatt.getDevice().getName());
+
             for (BluetoothGattService svc : svcs) {
-                Log.d(TAG, "Service discovered: " + svc.getUuid().toString());
+                Log.w(TAG, "Service discovered: " + svc.getUuid().toString());
                 if (!nusfound && svc.getUuid().toString().equals(NUS_SERVICE_UUID.toLowerCase())) {
                     Log.w(TAG, "Found NUS Service: " + svc.getUuid().toString());
 
@@ -224,11 +278,7 @@ public class ConnectionManager {
 
             if (!nusfound) {
                 gatt.disconnect();
-//                gatt.close();
-//                connected = false; // state disconnected not signaled sometimes
-//                connecting = false;
                 Log.w(TAG, "Disconnected device as service was not found or device serial didn't match");
-
             }
 
         }
@@ -366,9 +416,9 @@ public class ConnectionManager {
                         scanLeDevice(true);
                         Log.w("SCANTHREAD", "Starting LE Scan.");
                     } else {
-                        Log.w("SCANTHREAD", "Skipping LE Scan - connected: " + connected + " mScanning: " + mScanning);
+                        Log.d("SCANTHREAD", "Skipping LE Scan - connected: " + connected + " mScanning: " + mScanning);
                     }
-                    Thread.sleep(10000);
+                    Thread.sleep(7000);
                 } catch (Exception e) {
                     if (e instanceof InterruptedException)
                         break;
@@ -377,39 +427,6 @@ public class ConnectionManager {
             }
         }
     };
-
-//    /*
-//     BLE Scan record parsing
-//     inspired by:
-//     http://stackoverflow.com/questions/22016224/ble-obtain-uuid-encoded-in-advertising-packet
-//    */
-//    static public Map<Integer, String> ParseRecord(byte[] scanRecord) {
-//        Map<Integer, String> ret = new HashMap<Integer, String>();
-//        int index = 0;
-//        while (index < scanRecord.length) {
-//            int length = scanRecord[index++];
-//            //Zero value indicates that we are done with the record now
-//            if (length == 0) break;
-//
-//            int type = scanRecord[index];
-//            //if the type is zero, then we are pass the significant section of the data,
-//            // and we are thud done
-//            if (type == 0) break;
-//
-//            byte[] data = Arrays.copyOfRange(scanRecord, index + 1, index + length);
-//            if (data.length > 0) {
-//                StringBuilder hex = new StringBuilder(data.length * 2);
-//                // the data appears to be there backwards
-//                for (int bb = data.length - 1; bb >= 0; bb--) {
-//                    hex.append(String.format("%02X", data[bb]));
-//                }
-//                ret.put(type, hex.toString());
-//            }
-//            index += length;
-//        }
-//
-//        return ret;
-//    }
 
     public Context getMyContext() {
         return myContext;
@@ -424,30 +441,52 @@ public class ConnectionManager {
     }
 
     private void scanLeDevice(final boolean enable) {
-        boolean result = false;
-        if (enable) {
-            // Stops scanning after a pre-defined scan period.
-            mHandler.postDelayed(new Runnable() {
-                @Override
-                public void run() {
-                    mScanning = false;
-                    bluetoothAdapter.stopLeScan(scanCallback);
-                    Log.w(TAG, "Stopped LE Scan after " + SCAN_PERIOD / 1000 + " seconds.");
-                }
-            }, SCAN_PERIOD);
+//        boolean result = false;
+//        if (enable) {
+//            // Stops scanning after a pre-defined scan period.
+//            mHandler.postDelayed(new Runnable() {
+//                @Override
+//                public void run() {
+//                    mScanning = false;
+//                    bluetoothAdapter.stopLeScan(scanCallback);
+//                    bluetoothAdapter.cancelDiscovery();
+//                    Log.w(TAG, "Stopped LE Scan after " + SCAN_PERIOD / 1000 + " seconds.");
+//                }
+//            }, SCAN_PERIOD);
+//
+//            mScanning = true;
+//            //UUID[] uuids = {UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA8E")};
+//            result = bluetoothAdapter.startLeScan(scanCallback);
+//            if (!result) {
+//                Log.w(TAG, "Start LE Scan failed: " + result);
+//            } else {
+//                Log.w(TAG, "Started LE Scan: " + result);
+//            }
+//        } else {
+//            if(mScanning) {
+//                mScanning = false;
+//                bluetoothAdapter.stopLeScan(scanCallback);
+//                bluetoothAdapter.cancelDiscovery();
+//            }
+//            Log.w(TAG, "Stopped LE Scan.");
+//        }
+if(enable) {
+    mScanning = true;
+    scanner = BluetoothLeScannerCompat.getScanner();
+    ScanSettings settings = new ScanSettings.Builder()
+            .setLegacy(false)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+            .build();
+    List<ScanFilter> filters = new ArrayList<>();
+    filters.add(new ScanFilter.Builder().setServiceUuid(null).build());
+    scanner.startScan(filters, settings, scanCallback);
+} else {
+    mScanning = false;
+    if(scanner != null)
+        scanner.stopScan(scanCallback);
+}
 
-            mScanning = true;
-            result = bluetoothAdapter.startLeScan(scanCallback);
-            if (!result) {
-                Log.w(TAG, "Start LE Scan failed: " + result);
-            } else {
-                Log.w(TAG, "Started LE Scan: " + result);
-            }
-        } else {
-            mScanning = false;
-            bluetoothAdapter.stopLeScan(scanCallback);
-            Log.w(TAG, "Stopped LE Scan.");
-        }
     }
 
     /**
@@ -486,6 +525,17 @@ public class ConnectionManager {
                     // create file with default serial number
                     fos.write(new String("deviceserial=35895448783026136412").getBytes());
                     fos.close();
+                    fis = new FileInputStream(file);
+
+                    InputStreamReader inputStreamReader =
+                            new InputStreamReader(fis, StandardCharsets.UTF_8);
+
+                    try (BufferedReader reader = new BufferedReader(inputStreamReader)) {
+                        String line = reader.readLine();
+                        return line.substring(line.indexOf("=") + 1);
+                    } catch (IOException e1) {
+                        e1.printStackTrace();
+                    }
                 } catch (IOException ex) {
                     ex.printStackTrace();
                 }
@@ -525,6 +575,37 @@ public class ConnectionManager {
         }
         return false;
     }
-
+//    /*
+//     BLE Scan record parsing
+//     inspired by:
+//     http://stackoverflow.com/questions/22016224/ble-obtain-uuid-encoded-in-advertising-packet
+//    */
+//    static public Map<Integer, String> ParseRecord(byte[] scanRecord) {
+//        Map<Integer, String> ret = new HashMap<Integer, String>();
+//        int index = 0;
+//        while (index < scanRecord.length) {
+//            int length = scanRecord[index++];
+//            //Zero value indicates that we are done with the record now
+//            if (length == 0) break;
+//
+//            int type = scanRecord[index];
+//            //if the type is zero, then we are pass the significant section of the data,
+//            // and we are thud done
+//            if (type == 0) break;
+//
+//            byte[] data = Arrays.copyOfRange(scanRecord, index + 1, index + length);
+//            if (data.length > 0) {
+//                StringBuilder hex = new StringBuilder(data.length * 2);
+//                // the data appears to be there backwards
+//                for (int bb = data.length - 1; bb >= 0; bb--) {
+//                    hex.append(String.format("%02X", data[bb]));
+//                }
+//                ret.put(type, hex.toString());
+//            }
+//            index += length;
+//        }
+//
+//        return ret;
+//    }
 
 }

@@ -20,4 +20,8 @@ local.properties
 .project
 .gradle/
 .idea/
+gradle/
 app/build/
+
+.DS_Store
+
