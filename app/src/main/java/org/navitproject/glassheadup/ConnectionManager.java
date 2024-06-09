@@ -207,7 +207,8 @@ public class ConnectionManager {
 
             if (newState == STATE_DISCONNECTED || newState == 133) { // https://issuetracker.google.com/issues/36976711
                 Log.e(TAG, "STATE_DISCONNECTED: " + newState);
-                mBluetoothGatt.setCharacteristicNotification(nusrx, false);
+                if(mBluetoothGatt!=null && nusrx != null)
+                    mBluetoothGatt.setCharacteristicNotification(nusrx, false);
                 nusrx=null;
                 gatt.close();
                 mBluetoothGatt = null;
