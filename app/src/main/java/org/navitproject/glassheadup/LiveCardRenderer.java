@@ -351,16 +351,16 @@ public class LiveCardRenderer implements DirectRenderingCallback {
         float[] cpuload = readCoreValues();
 
         try {
-            Log.w("TEMP", "CPU: " + readTemperature("/sys/devices/platform/notle_pcb_sensor.0/temperature") / 1000.0F);
-            Log.w("TEMP", "Battery: " + readTemperature("/sys/devices/platform/omap_i2c.1/i2c-1/1-0055/power_supply/bq27520-0/temp") / 10.0F);
+            Log.i("TEMP", "CPU: " + readTemperature("/sys/devices/platform/notle_pcb_sensor.0/temperature") / 1000.0F);
+            Log.i("TEMP", "Battery: " + readTemperature("/sys/devices/platform/omap_i2c.1/i2c-1/1-0055/power_supply/bq27520-0/temp") / 10.0F);
         } catch (IOException e) {
             e.printStackTrace();
         }
 
-        Log.w("LOAD", "CPUs:");
+        Log.i("LOAD", "CPUs:");
         int i = 0;
         for (float coreload : cpuload) {
-            Log.w("LOAD", "Core" + i + ": " + String.format("%02.2f", coreload * 100) + "%");
+            Log.i("LOAD", "Core" + i + ": " + String.format("%02.2f", coreload * 100) + "%");
         }
 
         mHolder.unlockCanvasAndPost(canvas);
