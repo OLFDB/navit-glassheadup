@@ -21,6 +21,7 @@
 
 package org.navitproject.glassheadup;
 
+import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
 import android.bluetooth.BluetoothGattCharacteristic;
@@ -62,7 +63,7 @@ public class ConnectionManager {
     private static final String TAG = ConnectionManager.class.getSimpleName();
     private final static int MIN_RSSI_VALUE = -70;
     private static final String CONFIGFILE = "headup_serial.txt"; // contains the serial number we connect to
-    private static final long SCAN_PERIOD = 5000;
+    private static final long SCAN_DURATION = 3000;
     private final static String NUS_SERVICE_UUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA8E";
     private final static String NUS_SERVICE_UUID_RX = "6E400002-B5A3-F393-E0A9-E50E24DCCA8E";
     private final static String NUS_SERVICE_UUID_SERIAL = "6E400004-B5A3-F393-E0A9-E50E24DCCA8E";
@@ -84,6 +85,7 @@ public class ConnectionManager {
     private BluetoothLeScannerCompat scanner;
     private boolean listcomplete = false;
     private boolean restartscan;
+    private String preferreddevice;
 
     /**
      * Initializes a new instance of {@code ConnectionManager}, using the specified context to
@@ -92,7 +94,6 @@ public class ConnectionManager {
     public ConnectionManager(Context applicationContext, BluetoothManager bluetoothManager) {
         myContext = applicationContext;
         cmdrec = new CommandReceiver(this);
-        Log.d(TAG, "ConnectionManager() ");
         deviceserial = getDeviceSerialConfigured(myContext);
         Log.e(TAG, "CONFIGURED DEVICESERIAL IS: " + deviceserial);
         Log.e(TAG, "Start scanning.");
@@ -108,6 +109,7 @@ public class ConnectionManager {
 
         public void onScanResult(int callbackType, ScanResult result) {
             super.onScanResult(callbackType, result);
+            Log.e(TAG, "Single Scan result is not supported!");
         }
 
         public void onScanFailed(int errorCode) {
@@ -119,17 +121,24 @@ public class ConnectionManager {
 
             Log.e(TAG, "Batch Scan - Count of results: " + results.size());
             if (results.size() > 0) {
-                if (scanresults == null)
-                    scanresults = new ArrayList<ScanResult>();
+                scanresults = new ArrayList<ScanResult>();
                 scanner.stopScan(scanCallback);
                 for (ScanResult res : results) {
-                    if (devicefound)
-                        break;
+                    Log.e(TAG, "Batch Scan - result: " + res.getDevice().getAddress() + " at " + res.getRssi() + "dBm");
+
+                    // Ignore Tags
+                    if (res.getScanRecord().getAdvertiseFlags() != 26) {
+                        continue;
+                    }
+
+                    // Ignore devices with low RSSI
                     if (res.getRssi() < MIN_RSSI_VALUE)
                         continue;
+
                     scanresults.add(res);
                 }
                 listcomplete = true;
+                Log.e(TAG, "Batch Scan - Count of candidates: " + scanresults.size());
             } else {
                 scanner.flushPendingScanResults(scanCallback);
             }
@@ -141,10 +150,10 @@ public class ConnectionManager {
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             super.onConnectionStateChange(gatt, status, newState);
-            Log.w(TAG, "onConnectionStateChange: " + getGATTStatus(status) + ", " + getGATTStatus(newState) + " gatt==mBluetoothGatt: " + (mBluetoothGatt == gatt));
-            if (newState == STATE_CONNECTED) {
+            Log.w(TAG, "onConnectionStateChange: " + getGATTStatus(status) + ", " + (newState == 2 ? "CONNECTED" : newState == 0 ? "Disconnected" : "Unknown") + " gatt==mBluetoothGatt: " + (mBluetoothGatt == gatt));
+            if (newState == STATE_CONNECTED && status != 133) {
 
-                Log.e(TAG, "A device connected");
+                Log.e(TAG, "A device connected: " + gatt.getDevice().getAddress());
 
                 try {
                     Thread.sleep(1000);
@@ -158,15 +167,17 @@ public class ConnectionManager {
                     gatt.disconnect();
                 }
 
-                Log.e(TAG, "DiscoverServices returned: " + connected);
+                Log.e(TAG, "DiscoverServices returned " + connected);
             }
 
-            if (newState == STATE_DISCONNECTED || newState == 133) { // https://issuetracker.google.com/issues/36976711
+            if ((newState == STATE_DISCONNECTED || status == 133)) { // https://issuetracker.google.com/issues/36976711
                 Log.e(TAG, "STATE_DISCONNECTED: " + newState);
+                if (gatt != mBluetoothGatt)
+                    return;
                 if (mBluetoothGatt != null && nusrx != null)
                     mBluetoothGatt.setCharacteristicNotification(nusrx, false);
                 nusrx = null;
-                gatt.close();
+                mBluetoothGatt.close();
                 mBluetoothGatt = null;
                 connected = false;
                 nusfound = false;
@@ -197,7 +208,7 @@ public class ConnectionManager {
                 case BluetoothGatt.GATT_FAILURE:
                     return "FAILURE";
                 default:
-                    return "Unknown(" + String.format("%02X", State) + ").";
+                    return "Unknown(" + State + ").";
             }
         }
 
@@ -249,8 +260,7 @@ public class ConnectionManager {
                         if (nussvcchar != null) {
                             if (deviceserial_read.equals(deviceserial)) {
                                 Log.e(TAG, "Found the configured device with serial " + deviceserial_read);
-                                Log.e(TAG, "Gatt: " + mBluetoothGatt + " " + (gatt == mBluetoothGatt));
-
+                                preferreddevice = gatt.getDevice().getAddress();
                                 devicefound = true;
                             } else {
                                 Log.e(TAG, "Wrong device, wrong serial number! " + deviceserial_read);
@@ -357,7 +367,7 @@ public class ConnectionManager {
         @Override
         public void onReadRemoteRssi(BluetoothGatt gatt, int rssi, int status) {
             super.onReadRemoteRssi(gatt, rssi, status);
-            Log.d("DEBUG", "onReadRemoteRssi called");
+            Log.d("DEBUG", "onReadRemoteRssi called. RSSI: " + rssi);
         }
     };
 
@@ -374,31 +384,80 @@ public class ConnectionManager {
                     scanLeDevice(true);
                     restartscan = false;
                 }
-                if (listcomplete && scanresults != null) {
-                    for (ScanResult res : scanresults) {
-                        mBluetoothGatt = res.getDevice().connectGatt(myContext, false, mGattCallback);
-                        if (mBluetoothGatt == null)
-                            continue;
+                if (listcomplete && scanresults != null && !devicefound) {
+                    if (preferreddevice != null) {
+                        for (ScanResult res : scanresults) {
+                            if (res.getDevice().getAddress().equals(preferreddevice)) {
+                                Log.e(TAG, "Trying to connect to preferred device: " + preferreddevice);
+                                mBluetoothGatt = res.getDevice().connectGatt(myContext, false, mGattCallback);
+                                // In case the discovered services change cache needs refresh
+                                refreshDeviceCache(mBluetoothGatt);
+                                if (mBluetoothGatt != null) {
+                                    int i = 0;
+                                    // Wait for 10 seconds to handle connection and service discovery
+                                    while (mBluetoothGatt != null && !devicefound && i++ < 1000) {
+                                        try {
+                                            Thread.sleep(10);
+                                        } catch (InterruptedException e) {
 
-                        // In case the discovered services change cache needs refresh
-                        refreshDeviceCache(mBluetoothGatt);
-
-                        int i = 0;
-                        // Wait for 10 seconds to handle connection and service discovery
-                        while (!devicefound && i++ < 10) {
-                            try {
-                                Thread.sleep(1000);
-                            } catch (InterruptedException e) {
-
+                                        }
+                                    }
+                                }
+                                break;
                             }
                         }
-                        if (devicefound)
-                            break;
-                        else if (mBluetoothGatt != null) {
-                            try {
-                                mBluetoothGatt.close();
-                            } catch (Exception e) {
+                    }
+                    if (!devicefound) {
+                        //preferreddevice=null;
+                        for (ScanResult res : scanresults) {
+                            Log.e(TAG, "Trying to connect to: " + res.getDevice().getAddress());
+                            mBluetoothGatt = res.getDevice().connectGatt(myContext, false, mGattCallback);
+                            if (mBluetoothGatt == null)
+                                continue;
 
+                            // In case the discovered services change cache needs refresh
+                            refreshDeviceCache(mBluetoothGatt);
+
+                            int i = 0;
+                            // Wait for 10 seconds to handle connection and service discovery
+                            while (mBluetoothGatt != null && !devicefound && i++ < 1000) {
+                                try {
+                                    Thread.sleep(10);
+                                } catch (InterruptedException e) {
+
+                                }
+                            }
+                            if (devicefound)
+                                break;
+                            else if (mBluetoothGatt != null) {
+                                try {
+                                    mBluetoothGatt.close();
+                                } catch (Exception e) {
+                                    BluetoothManager bluetoothManager = (BluetoothManager) myContext.getSystemService(Context.BLUETOOTH_SERVICE);
+
+                                    BluetoothAdapter bluetoothAdapter = bluetoothManager.getAdapter();
+                                    Log.e("", "Scanmode: " + bluetoothAdapter.getScanMode());
+
+                                    bluetoothAdapter.disable();
+
+                                    while (bluetoothAdapter.isEnabled()) ;
+                                    try {
+                                        Thread.sleep(1000);
+                                    } catch (InterruptedException e1) {
+                                        e1.printStackTrace();
+                                    }
+
+                                    bluetoothAdapter.enable();
+
+                                    while (!bluetoothAdapter.isEnabled()) ;
+                                    try {
+                                        Thread.sleep(1000);
+                                    } catch (InterruptedException e1) {
+                                        e1.printStackTrace();
+                                    }
+
+                                    bluetoothAdapter = null;
+                                }
                             }
                         }
                     }
@@ -408,7 +467,7 @@ public class ConnectionManager {
                         scanLeDevice(true);
                 }
                 try {
-                    Thread.sleep(1000);
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
 
                 }
@@ -439,7 +498,7 @@ public class ConnectionManager {
                     .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                     .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                     .setMatchMode(ScanSettings.MATCH_MODE_STICKY)
-                    .setReportDelay(3000) // use batch scan
+                    .setReportDelay(SCAN_DURATION) // use batch scan
                     .build();
             List<ScanFilter> filters = new ArrayList<>();
             filters.add(new ScanFilter.Builder().setServiceUuid(null).build());
