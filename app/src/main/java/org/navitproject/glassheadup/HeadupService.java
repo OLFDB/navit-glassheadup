@@ -126,28 +126,28 @@ public class HeadupService extends Service {
         wakeLock.acquire(50000000);
         BluetoothManager bluetoothManager = (BluetoothManager) getSystemService(Context.BLUETOOTH_SERVICE);
 
-//        bluetoothAdapter = bluetoothManager.getAdapter();
-//        Log.e(LIVE_CARD_TAG, "Scanmode: " + bluetoothAdapter.getScanMode());
-//
-//        bluetoothAdapter.disable();
-//
-//        while (bluetoothAdapter.isEnabled()) ;
-//        try {
-//            Thread.sleep(1000);
-//        } catch (InterruptedException e) {
-//            e.printStackTrace();
-//        }
-//
-//        bluetoothAdapter.enable();
-//
-//        while (!bluetoothAdapter.isEnabled()) ;
-//        try {
-//            Thread.sleep(1000);
-//        } catch (InterruptedException e) {
-//            e.printStackTrace();
-//        }
-//
-//        bluetoothAdapter = null;
+        bluetoothAdapter = bluetoothManager.getAdapter();
+        Log.e(LIVE_CARD_TAG, "Scanmode: " + bluetoothAdapter.getScanMode());
+
+        bluetoothAdapter.disable();
+
+        while (bluetoothAdapter.isEnabled()) ;
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        bluetoothAdapter.enable();
+
+        while (!bluetoothAdapter.isEnabled()) ;
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        bluetoothAdapter = null;
 
         mConnectionManager = new ConnectionManager(this, bluetoothManager);
     }
