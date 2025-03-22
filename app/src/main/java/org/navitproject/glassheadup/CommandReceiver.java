@@ -21,19 +21,25 @@
 
 package org.navitproject.glassheadup;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.Point;
+import android.media.AudioManager;
 import android.util.Log;
+
+import com.google.android.glass.media.Sounds;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static android.content.ContentValues.TAG;
 
@@ -64,6 +70,7 @@ public class CommandReceiver {
     private static final int BTHEADUP_OBDVOLTAGE = 0x27;
     private static final int BTHEADUP_OBDOILTEMP = 0x28;
     private static final int BTHEADUP_OBDCOOLANTTEMP = 0x29;
+    private static final int BTHEADUP_SPEEDWARN = 0x30;
 
     private static final int CMDBUFFERSIZE = 20;
     private static final double SPEEDLIMITEXCEEDRED = 10;
@@ -90,9 +97,13 @@ public class CommandReceiver {
     private double obdoiltemp = 0.0;
     private double obdcoolanttemp = 0.0;
     private double obdvoltage = 0.0;
-    private Integer navimage;
+    private int navimage;
+    private int navimageold;
     private int imperial = 0;
     private ConnectionManager conmgr = null;
+    private AudioManager audio;
+    private boolean reminder_played;
+    private long last_played;
 
     private ArrayList<commands> cmds = new ArrayList<>(CMDBUFFERSIZE);
 
@@ -113,9 +124,13 @@ public class CommandReceiver {
             }
         }
     };
+    private boolean speedwarn_played = false;
+    private double curroutespeedold = 0;
 
     public CommandReceiver(ConnectionManager connectionManager) {
         conmgr = connectionManager;
+        audio = (AudioManager) conmgr.getMyContext().getSystemService(Context.AUDIO_SERVICE);
+        last_played = System.currentTimeMillis(); // No navigation reminder in first five minutes after startup
         int i = 0;
         while (i < CMDBUFFERSIZE) {
             cmds.add(new commands());
@@ -427,16 +442,39 @@ public class CommandReceiver {
 
                         case BTHEADUP_NEXTMANEUVLENGTH:
                             nmls = new String(cmds.get(cmdidx).data, 2, cmds.get(cmdidx).length - 7, StandardCharsets.UTF_8);
+                            if(nmls.indexOf("k")==-1 && nmls.indexOf(".")==-1) {
+                                Pattern p = Pattern.compile("[0-9]*");
+                                Matcher m = p.matcher(nmls);
+                                if (m.find()) {
+                                    String number = m.group(0);
+
+                                    // play sound 1000m before next maneuver after 5 min of silence only
+                                    if ((System.currentTimeMillis() - last_played) > 300000 && !reminder_played && number != null && (Integer.parseInt(number) <= 1000)) {
+                                        audio.playSoundEffect(Sounds.DISALLOWED);
+                                        reminder_played = true;
+                                        last_played = System.currentTimeMillis();
+                                    }
+                                }
+                            }
+
                             Log.i(TAG, "BTHEADUP_NEXTMANEUVLENGTH: " + String.format("%s", nmls));
                             break;
 
                         case BTHEADUP_ROUTESPEED:
+
                             curroutespeed = doubleFromByteArray(cmds.get(cmdidx).data, 2);
+                            if(curroutespeedold != curroutespeed)
+                                speedwarn_played=false;
+                            curroutespeedold = curroutespeed;
                             Log.i(TAG, "BTHEADUP_ROUTESPEED:" + String.format("%.0f", curroutespeed));
                             break;
 
                         case BTHEADUP_VEHICLESPEED:
                             curspeed = doubleFromByteArray(cmds.get(cmdidx).data, 2);
+                            if(curroutespeed != -1 && curspeed > (curroutespeed>100?(curroutespeed + 10):(curroutespeed + 5)) && !speedwarn_played) {
+                                audio.playSoundEffect(Sounds.ERROR);
+                                speedwarn_played = true;
+                            }
                             Log.i(TAG, "BTHEADUP_VEHICLESPEED: " + String.format("%.0f", curspeed));
                             break;
 
@@ -463,6 +501,9 @@ public class CommandReceiver {
 
                         case BTHEADUP_NAVNEXTTURNIMAGE:
                             navimage = intFromByteArray(cmds.get(cmdidx).data);
+                            if(navimage != navimageold)
+                                reminder_played = false;
+                            navimageold = navimage;
                             Log.i(TAG, "BTHEADUP_NAVNEXTTURNIMAGE: " + navimage);
                             break;
 
