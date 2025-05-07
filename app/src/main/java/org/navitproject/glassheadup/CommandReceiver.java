@@ -70,7 +70,8 @@ public class CommandReceiver {
     private static final int BTHEADUP_OBDVOLTAGE = 0x27;
     private static final int BTHEADUP_OBDOILTEMP = 0x28;
     private static final int BTHEADUP_OBDCOOLANTTEMP = 0x29;
-    private static final int BTHEADUP_SPEEDWARN = 0x30;
+    private static final int BTHEADUP_SPEEDCAMWARN = 0x2A;
+    private static final int BTHEADUP_TPMSALARM = 0x2B;
 
     private static final int CMDBUFFERSIZE = 20;
     private static final double SPEEDLIMITEXCEEDRED = 10;
@@ -100,6 +101,7 @@ public class CommandReceiver {
     private int navimage;
     private int navimageold;
     private int imperial = 0;
+    private int tpms_alarm = 0;
     private ConnectionManager conmgr = null;
     private AudioManager audio;
     private boolean reminder_played;
@@ -126,6 +128,8 @@ public class CommandReceiver {
     };
     private boolean speedwarn_played = false;
     private double curroutespeedold = 0;
+    private int spdcamwarn;
+    private boolean speedcam_played;
 
     public CommandReceiver(ConnectionManager connectionManager) {
         conmgr = connectionManager;
@@ -541,6 +545,22 @@ public class CommandReceiver {
                             Log.i(TAG, "BTHEADUP_IMPERIAL: " + imperial);
                             break;
 
+                        case BTHEADUP_SPEEDCAMWARN:
+                            spdcamwarn = intFromByteArray(cmds.get(cmdidx).data);
+                            Log.i(TAG, "BTHEADUP_SPEEDCAMWARN: " + spdcamwarn);
+                            if(!speedcam_played && spdcamwarn==1) {
+                                audio.playSoundEffect(Sounds.SUCCESS);
+                                speedcam_played = true;
+                            } else if(speedcam_played && spdcamwarn==0) {
+                                speedcam_played = false;
+                            }
+                            break;
+
+                        case BTHEADUP_TPMSALARM:
+                            tpms_alarm = intFromByteArray(cmds.get(cmdidx).data);
+                            Log.i(TAG, "BTHEADUP_TPMSALARM: " + tpms_alarm);
+                            break;
+
                         default:
                             Log.w(TAG, "Unknown Command: " + cmds.get(cmdidx).data[0])
                             ;
@@ -630,6 +650,10 @@ public class CommandReceiver {
 
     public void destroy() {
         CmDThread.interrupt();
+    }
+
+    public int getTPMSAlarm() {
+        return tpms_alarm;
     }
 
     private static class commands {
