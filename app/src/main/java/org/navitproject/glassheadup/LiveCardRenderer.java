@@ -60,6 +60,7 @@ public class LiveCardRenderer implements DirectRenderingCallback {
     private static final long FRAME_TIME_MILLIS = 1000;
     private static final int TIMEICONSIZE = 20;
     private static final int OBDICONSIZE = 20;
+    private static final int TPMSICONSIZE = 60;
 
     private SurfaceHolder mHolder;
     private boolean mPaused;
@@ -264,6 +265,13 @@ public class LiveCardRenderer implements DirectRenderingCallback {
                         ((ImageView) (mLiveCardView.findViewById(R.id.navstatus_image_view))).setImageResource((mLiveCardView.getResources().getIdentifier((mConnectionManager.getCmdrec().getNavstatus()) != 0 ? NavImages.getNavstatusimages().get(mConnectionManager.getCmdrec().getNavstatus()) + "_wh_96_96" : "status_no_destination_wh_96_96", "drawable", this.getClass().getPackage().getName())));
 
                         setTextWithIcon((TextView) (mLiveCardView.findViewById(R.id.obdspeed_text_view)), "\ue9e4", mConnectionManager.getCmdrec().getObdspeed() + "km/h", OBDICONSIZE);
+
+                        if (mConnectionManager.getCmdrec().getTPMSAlarm()>0) {
+                            ((TextView) (mLiveCardView.findViewById(R.id.tpmsalarm_text_view))).setTextColor(Color.parseColor("#FF0000"));
+                            setTextWithIcon((TextView) (mLiveCardView.findViewById(R.id.tpmsalarm_text_view)), "\uebc8", " ", TPMSICONSIZE);
+                        } else {
+                            ((TextView) (mLiveCardView.findViewById(R.id.tpmsalarm_text_view))).setText("");
+                        }
 
                         if (mConnectionManager.getCmdrec().getObdcoolanttemp() != -255) {
 
