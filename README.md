@@ -3,4 +3,5 @@ A navit plugin for using a Google Glass 1 as a headup display
 
 
 
-![Bildschirmfoto 2023-10-07 um 08 59 19](https://github.com/OLFDB/navit-glassheadup/assets/5459286/a8f018d7-2f08-458f-8df6-46635890ad90)
+
+![Bildschirmfoto 2025-05-07 um 20 47 27](https://github.com/user-attachments/assets/08a23e47-c11a-4521-9736-843d3cbeca6a)
