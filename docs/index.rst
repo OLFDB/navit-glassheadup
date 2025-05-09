@@ -13,7 +13,7 @@ In the second line you find the name of the street after the next turn. The turn
 Line four display the distance to the next turn, a warning icon for speedcams, or a TPMS warning if the TPMS plugin is installed as well, the WGS84 coordinate of the current position, the speed limit of the road, the direct distance to the destination and the current GNSS altitude. 
 Line five shows the current streets name and in line six you'll find some OBDII data, if the OBD2 plugin is installed as well. OBD speed, coolant temperature and generator voltage.
 
-You can build the source using Android Studio 4.2.2. In SDK Manager under Anroid 4.4 install the Glass Development Kit Preview, ASndrpod SDK platform 19 and Sources for Android SDK 19. 
+You can build the source using Android Studio 4.2.2. In SDK Manager under Anroid 4.4 install the Glass Development Kit Preview, Android SDK platform 19 and Sources for Android SDK 19. 
 
 You need to disable 'Hide obsolete packages' and enable 'Show package details' to be able to select these items under SDK Manager -> Android SDK.
 
